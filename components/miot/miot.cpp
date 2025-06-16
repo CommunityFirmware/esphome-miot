@@ -421,6 +421,8 @@ void Miot::process_message_(char *msg) {
     ESP_LOGI(TAG, "Resetting to factory defaults...");
     global_preferences->reset();
     App.safe_reboot();
+  } else if (std::strncmp(cmd.c_str(), "***", 3) == 0) {
+    ESP_LOGI(TAG, "Ignoring MCU debug message '%s %s'", cmd.c_str(), saveptr);
   } else {
     ESP_LOGW(TAG, "Unknown command '%s %s'", cmd.c_str(), saveptr);
     send_reply_("error");
