@@ -57,6 +57,9 @@ void Miot::setup() {
     rx_count_ = 0;
   }
 
+  // get deerma.humidifier.jsq5 into its main app loop
+  queue_command("none");
+
   queue_command("MIIO_mcu_version_req");
   queue_net_change_command(true);
 
