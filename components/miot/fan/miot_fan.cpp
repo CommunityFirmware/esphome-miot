@@ -1,5 +1,10 @@
 #include "esphome/core/log.h"
+#include "esphome/core/version.h"
 #include "miot_fan.h"
+
+#if ESPHOME_VERSION_CODE < VERSION_CODE(2025, 6, 0)
+#error "The fan component requires at least ESPHome 2025.6.0 due to https://github.com/esphome/esphome/pull/8277"
+#endif
 
 namespace esphome {
 namespace miot {
@@ -127,18 +132,10 @@ void MiotFan::control(const fan::FanCall &call) {
       mode = it->first;
   }
 
-  bool nospeed = false;
-  if (!this->preset_mode.empty() || mode.has_value()) {
-    if (!this->state && this->speed == 0 && call.get_speed().has_value() && *call.get_speed() == (this->speed_max_ - this->speed_min_) / this->speed_step_ + 1) {
-      ESP_LOGW(TAG, "Ignoring max speed due to https://github.com/esphome/esphome/pull/8277");
-      nospeed = true;
-    }
-  }
-
   if (mode.has_value()) {
     this->speed = 0;
     this->parent_->set_property(this->preset_modes_siid_, this->preset_modes_piid_, MiotValue(*mode));
-  } else if (!nospeed && call.get_speed().has_value()) {
+  } else if (call.get_speed().has_value()) {
     this->preset_mode.clear();
     if (this->manual_speed_preset_.has_value())
       this->parent_->set_property(this->preset_modes_siid_, this->preset_modes_piid_, MiotValue(*this->manual_speed_preset_));
