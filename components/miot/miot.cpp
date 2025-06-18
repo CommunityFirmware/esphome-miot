@@ -96,7 +96,7 @@ void Miot::setup() {
       switch (state) {
       case ota::OTA_STARTED:
         // directly send this to indicate a firmware update, as loop() won't get called anymore
-        send_reply_("down MIIO_net_change updating");
+        send_reply_("down MIIO_net_change offline"); // XXX
         break;
       case ota::OTA_ERROR:
         queue_net_change_command(true);
