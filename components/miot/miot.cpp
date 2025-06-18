@@ -57,12 +57,13 @@ void Miot::setup() {
     rx_count_ = 0;
   }
 
+  queue_net_change_command(true);
+  
   // get deerma.humidifier.jsq5 into its main app loop
   queue_command("none");
 
   queue_command("MIIO_mcu_version_req");
-  queue_net_change_command(true);
-
+  
   this->set_interval("poll", 60000, [this] {
     std::string cmd, part;
     cmd.reserve(MAX_LINE_LENGTH);
