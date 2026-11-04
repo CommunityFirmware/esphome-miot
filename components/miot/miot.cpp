@@ -6,13 +6,16 @@
 #include <ctime>
 
 #include "miot.h"
-#include "esphome/components/network/util.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 #include "esphome/core/preferences.h"
 #include "esphome/core/string_ref.h"
 #include "esphome/core/util.h"
+
+#ifdef USE_NETWORK
+#include "esphome/components/network/util.h"
+#endif
 
 #ifdef USE_CAPTIVE_PORTAL
 #include "esphome/components/captive_portal/captive_portal.h"
@@ -441,17 +444,21 @@ const char *Miot::get_net_reply_() {
   if (remote_is_connected()) {
     return NET_CLOUD;
   }
+#ifdef USE_NETWORK
   if (network::is_connected()) {
     return NET_LOCAL;
   }
+#endif
 #ifdef USE_CAPTIVE_PORTAL
   if (captive_portal::global_captive_portal != nullptr && captive_portal::global_captive_portal->is_active()) {
     return NET_UAP;
   }
 #endif
+#ifdef USE_NETWORK
   if (network::is_disabled()) {
     return NET_UNPROV;
   }
+#endif
   return NET_OFFLINE;
 }
 
