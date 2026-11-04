@@ -1,0 +1,31 @@
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# ESPHome builds, downloaded external components and dashboard state. `esphome compile`
+# writes next to the config file it is given, so this has to match at any depth.
+.esphome/
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Every config here reads its credentials from the untracked secrets file
+config/secrets.yaml
+
+# Editors, clangd and OS cruft
+.DS_Store
+._*
+*.swp
+.idea/
+.vscode/
+.cache/
+.clangd/
+compile_commands.json

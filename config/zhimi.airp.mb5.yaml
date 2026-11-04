@@ -1,14 +1,14 @@
 # https://home.miot-spec.com/spec/zhimi.airp.mb5
 
 external_components:
-  source: github://dhewg/esphome-miot@main
+  source: github://CommunityFirmware/esphome-miot@main
 
 esphome:
   name: purifier
   friendly_name: Air Purifier
   comment: Xiaomi Smart Air Purifier 4 (zhimi.airp.mb5)
   project:
-    name: "dhewg.esphome-miot"
+    name: "CommunityFirmware.esphome-miot"
     version: "zhimi.airp.mb5"
 
 esp32:
@@ -56,6 +56,9 @@ miot:
   id: miot_main
   miot_heartbeat_siid: 11
   miot_heartbeat_piid: 4
+  # Serial protocol behaviour; set to false only if the MCU does not follow the spec strictly
+  miot_strict_commands: true
+  miot_require_result: true
 
 fan:
   - platform: "miot"

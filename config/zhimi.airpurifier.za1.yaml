@@ -1,14 +1,14 @@
 # https://home.miot-spec.com/spec/zhimi.airpurifier.za1
 
 external_components:
-  source: github://dhewg/esphome-miot@main
+  source: github://CommunityFirmware/esphome-miot@main
 
 esphome:
   name: purifier
   friendly_name: Air Purifier
   comment: Smartmi Air Purifier (zhimi.airpurifier.za1)
   project:
-    name: "dhewg.esphome-miot"
+    name: "CommunityFirmware.esphome-miot"
     version: "zhimi.airpurifier.za1"
 
 esp32:
@@ -58,6 +58,9 @@ uart:
 
 miot:
   id: miot_main
+  # Serial protocol behaviour; set to false only if the MCU does not follow the spec strictly
+  miot_strict_commands: true
+  miot_require_result: true
 
 fan:
   - platform: "miot"

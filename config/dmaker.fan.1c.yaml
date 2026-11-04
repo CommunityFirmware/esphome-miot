@@ -1,14 +1,14 @@
 # https://home.miot-spec.com/spec/dmaker.fan.1c
 
 external_components:
-  source: github://dhewg/esphome-miot@main
+  source: github://CommunityFirmware/esphome-miot@main
 
 esphome:
   name: standing-fan
   friendly_name: Smart Standing Fan 2 Lite
   comment: Xiaomi Mi Smart Standing Fan 2 Lite (dmaker.fan.1c)
   project:
-    name: "dhewg.esphome-miot"
+    name: "CommunityFirmware.esphome-miot"
     version: "dmaker.fan.p18"
 
 esp8266:
@@ -49,6 +49,9 @@ uart:
 
 miot:
   id: miot_main
+  # Serial protocol behaviour; set to false only if the MCU does not follow the spec strictly
+  miot_strict_commands: true
+  miot_require_result: true
 
 fan:
   - platform: "miot"

@@ -1,14 +1,14 @@
 # https://home.miot-spec.com/spec/zhimi.humidifier.ca4
 
 external_components:
-  source: github://dhewg/esphome-miot@main
+  source: github://CommunityFirmware/esphome-miot@main
 
 esphome:
   name: humidifier
   friendly_name: Air Humidifier
   comment: Smartmi Evaporative Humidifier 2 (zhimi.humidifier.ca4)
   project:
-    name: "dhewg.esphome-miot"
+    name: "CommunityFirmware.esphome-miot"
     version: "zhimi.humidifier.ca4"
 
 esp32:
@@ -58,6 +58,9 @@ time:
 
 miot:
   id: miot_main
+  # Serial protocol behaviour; set to false only if the MCU does not follow the spec strictly
+  miot_strict_commands: true
+  miot_require_result: true
 
 fan:
   - platform: "miot"

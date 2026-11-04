@@ -13,6 +13,8 @@ CONF_MIOT_ID = "miot_id"
 CONF_MIOT_HEARTBEAT_SIID = "miot_heartbeat_siid"
 CONF_MIOT_HEARTBEAT_PIID = "miot_heartbeat_piid"
 CONF_MIOT_OTA_NET_INDICATOR = "miot_ota_net_indicator"
+CONF_MIOT_STRICT_COMMANDS = "miot_strict_commands"
+CONF_MIOT_REQUIRE_RESULT = "miot_require_result"
 CONF_MIOT_SIID = "miot_siid"
 CONF_MIOT_PIID = "miot_piid"
 CONF_MIOT_EIID = "miot_eiid"
@@ -22,7 +24,6 @@ MIOT_TRUE_DEFAULT = "true"
 CONF_MIOT_FALSE = "miot_false"
 MIOT_FALSE_DEFAULT = "false"
 
-# The MIoT serial protocol is fixed to 115200 8N1.
 MIOT_BAUD_RATE = 115200
 
 
@@ -56,6 +57,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_MIOT_HEARTBEAT_SIID): cv.uint32_t,
             cv.Optional(CONF_MIOT_HEARTBEAT_PIID): cv.uint32_t,
             cv.Optional(CONF_MIOT_OTA_NET_INDICATOR, default="updating"): cv.string,
+            cv.Optional(CONF_MIOT_STRICT_COMMANDS, default=True): cv.boolean,
+            cv.Optional(CONF_MIOT_REQUIRE_RESULT, default=True): cv.boolean,
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
@@ -63,8 +66,15 @@ CONFIG_SCHEMA = cv.All(
     validate_heartbeat,
 )
 
+# The MIoT serial protocol is fixed to 115200 8N1 and cannot be changed.
 FINAL_VALIDATE_SCHEMA = uart.final_validate_device_schema(
-    DOMAIN, require_tx=True, require_rx=True, baud_rate=MIOT_BAUD_RATE
+    DOMAIN,
+    require_tx=True,
+    require_rx=True,
+    baud_rate=MIOT_BAUD_RATE,
+    data_bits=8,
+    parity="NONE",
+    stop_bits=1,
 )
 
 
@@ -80,5 +90,7 @@ async def to_code(config):
             )
         )
     cg.add(var.set_ota_net_indicator(config[CONF_MIOT_OTA_NET_INDICATOR]))
+    cg.add(var.set_strict_commands(config[CONF_MIOT_STRICT_COMMANDS]))
+    cg.add(var.set_require_result(config[CONF_MIOT_REQUIRE_RESULT]))
 
     ota.request_ota_state_listeners()

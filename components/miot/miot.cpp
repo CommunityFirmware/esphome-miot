@@ -12,9 +12,14 @@
 #include "esphome/core/preferences.h"
 #include "esphome/core/string_ref.h"
 #include "esphome/core/util.h"
+#include "esphome/core/version.h"
 
 #ifdef USE_NETWORK
 #include "esphome/components/network/util.h"
+#endif
+
+#ifdef USE_WIFI
+#include "esphome/components/wifi/wifi_component.h"
 #endif
 
 #ifdef USE_CAPTIVE_PORTAL
@@ -39,7 +44,7 @@ ESPHOME_LOG_TAG(TAG, "miot");
 namespace {
 
 /// Longest accumulated property list in a single get_properties command.
-constexpr size_t MAX_COMMAND_LENGTH = 60;
+constexpr size_t MAX_POLL_LENGTH = 60;
 /// Drop a partially received message if the MCU stalls for this long.
 constexpr uint32_t RECEIVE_TIMEOUT_MS = 300;
 
@@ -48,6 +53,7 @@ const char *const NET_UNPROV = "unprov";
 const char *const NET_UAP = "uap";
 const char *const NET_LOCAL = "local";
 const char *const NET_CLOUD = "cloud";
+const char *const NET_UPDATING = "updating";
 
 }  // namespace
 
@@ -88,10 +94,16 @@ void Miot::setup() {
 void Miot::on_ota_global_state(ota::OTAState state, float progress, uint8_t error, ota::OTAComponent *comp) {
   switch (state) {
     case ota::OTA_STARTED:
+      this->ota_updating_ = true;
       // directly send this to indicate a firmware update, as loop() won't get called anymore
       this->send_reply_((std::string("down MIIO_net_change ") + this->ota_net_indicator_).c_str());
+      // the reply above already reported the new state, so do not queue it again
+      this->last_net_reply_ = this->get_net_reply_();
       break;
+    case ota::OTA_COMPLETED:
+    case ota::OTA_ABORT:
     case ota::OTA_ERROR:
+      this->ota_updating_ = false;
       this->queue_net_change_command(true);
       break;
     default:
@@ -102,17 +114,17 @@ void Miot::on_ota_global_state(ota::OTAState state, float progress, uint8_t erro
 
 void Miot::poll_properties_() {
   std::string cmd;
-  cmd.reserve(MAX_COMMAND_LENGTH);
+  cmd.reserve(MAX_POLL_LENGTH);
 
   for (const auto &listener : this->listeners_) {
     if (!listener.poll) {
       continue;
     }
 
-    char part[MAX_COMMAND_LENGTH + 1];
+    char part[MAX_POLL_LENGTH + 1];
     snprintf(part, sizeof(part), " %" PRIu32 " %" PRIu32, listener.siid, listener.piid);
 
-    if (cmd.size() + std::strlen(part) > MAX_COMMAND_LENGTH) {
+    if (cmd.size() + std::strlen(part) > MAX_POLL_LENGTH) {
       this->queue_command("get_properties" + cmd);
       cmd.clear();
     }
@@ -173,9 +185,11 @@ void Miot::dump_config() {
                 "  MCU version: %s\n"
                 "  Heartbeat: %" PRIu32 ":%" PRIu32 "\n"
                 "  OTA net indicator: %s\n"
+                "  Strict commands: %s\n"
+                "  Require result: %s\n"
                 "  Time: %s",
                 model.c_str(), mcu_version.c_str(), this->heartbeat_siid_, this->heartbeat_piid_,
-                this->ota_net_indicator_.c_str(),
+                this->ota_net_indicator_.c_str(), YESNO(this->strict_commands_), YESNO(this->require_result_),
 #ifdef USE_TIME
                 "available"
 #else
@@ -258,6 +272,10 @@ void Miot::register_event_listener(uint32_t siid, uint32_t eiid, const std::func
 #endif
 
 void Miot::queue_command(const std::string &cmd) {
+  if (cmd.size() > MAX_COMMAND_LENGTH) {
+    ESP_LOGE(TAG, "MCU command too long (%zu > %zu), dropping '%s'", cmd.size(), MAX_COMMAND_LENGTH, cmd.c_str());
+    return;
+  }
   if (!this->command_queue_.push(cmd)) {
     ESP_LOGE(TAG, "Command queue full, dropping MCU command '%s'", cmd.c_str());
     return;
@@ -277,22 +295,44 @@ void Miot::queue_command(const char *fmt, ...) {
     ESP_LOGE(TAG, "Failed to format MCU command '%s'", fmt);
     return;
   }
-  if (static_cast<size_t>(len) > MAX_LINE_LENGTH) {
-    ESP_LOGE(TAG, "MCU command too long (%d > %zu), dropping", len, MAX_LINE_LENGTH);
+  if (static_cast<size_t>(len) > MAX_COMMAND_LENGTH) {
+    ESP_LOGE(TAG, "MCU command too long (%d > %zu), dropping", len, MAX_COMMAND_LENGTH);
     return;
   }
 
   this->queue_command(std::string(buffer, static_cast<size_t>(len)));
 }
 
+bool Miot::is_provisioning_() {
+#ifdef USE_CAPTIVE_PORTAL
+  if (captive_portal::global_captive_portal == nullptr || !captive_portal::global_captive_portal->is_active()) {
+    return false;
+  }
+#ifdef USE_WIFI
+  // with credentials configured the portal is a fallback AP, so the module is offline, not unprovisioned
+  return wifi::global_wifi_component == nullptr || !wifi::global_wifi_component->has_sta();
+#else
+  return true;
+#endif
+#else
+  return false;
+#endif
+}
+
+const char *Miot::get_net_change_payload_() const {
+  // "updating" may be customised per device (e.g. "updating force"), the state stays the same
+  return this->ota_updating_ ? this->ota_net_indicator_.c_str() : this->get_net_reply_();
+}
+
 void Miot::queue_net_change_command(bool force) {
-  const char *reply = this->get_net_reply_();
-  if (!force && reply == this->last_net_reply_) {
+  const char *state = this->get_net_reply_();
+  if (!force && state == this->last_net_reply_) {
     return;
   }
-  ESP_LOGI(TAG, "Network status changed to '%s'", reply);
-  this->queue_command("MIIO_net_change %s", reply);
-  this->last_net_reply_ = reply;
+  const char *payload = this->get_net_change_payload_();
+  ESP_LOGI(TAG, "Network status changed to '%s'", payload);
+  this->queue_command("MIIO_net_change %s", payload);
+  this->last_net_reply_ = state;
 }
 
 void Miot::set_property(uint32_t siid, uint32_t piid, const MiotValue &value) {
@@ -327,6 +367,119 @@ void Miot::send_reply_(const char *reply) {
   this->flush();
 }
 
+size_t Miot::count_tokens_(const char *args) {
+  if (args == nullptr) {
+    return 0;
+  }
+  size_t count = 0;
+  bool in_token = false;
+  bool in_quotes = false;
+  for (const char *p = args; *p != 0; p++) {
+    if (*p == '"') {
+      in_quotes = !in_quotes;
+      in_token = true;
+    } else if (*p == ' ' && !in_quotes) {
+      in_token = false;
+    } else if (!in_token) {
+      in_token = true;
+      count++;
+    }
+  }
+  return count;
+}
+
+MiotResultFormat Miot::resolve_result_format_(const char *args) const {
+  const size_t tokens = count_tokens_(args);
+  // <siid> <aiid> <code> followed by <piid> <value> pairs
+  const bool fits_action = tokens >= 3 && (tokens - 3) % 2 == 0;
+  // <siid> <piid> <code> triples
+  const bool fits_set = tokens > 0 && tokens % 3 == 0;
+  // <siid> <piid> <code> <value> quads
+  const bool fits_get = tokens > 0 && tokens % 4 == 0;
+
+  // a shape that only one interpretation fits settles it, whatever was handed out last
+  if (fits_set && !fits_get) {
+    return mrfSet;
+  }
+  if (fits_get && !fits_set) {
+    return mrfGet;
+  }
+  // ambiguous counts (12, 24, ...) or mixed successes and failures: the pending command decides
+  if (this->expect_action_result_) {
+    return mrfAction;
+  }
+  if (this->expect_value_result_) {
+    return mrfGet;
+  }
+  if (fits_set) {
+    return mrfSet;
+  }
+  if (fits_get) {
+    return mrfGet;
+  }
+  if (fits_action) {
+    return mrfAction;
+  }
+  // nothing fits, let the parser report the error with the set_properties layout
+  return mrfSet;
+}
+
+std::string Miot::unescape_value_(const char *value) {
+  std::string result(value);
+  // the spec escapes spaces inside string values as \u0020
+  for (size_t pos = result.find("\\u0020"); pos != std::string::npos; pos = result.find("\\u0020", pos + 1)) {
+    result.replace(pos, 6, " ");
+  }
+  return result;
+}
+
+bool Miot::is_well_formed_command_(const StringRef &cmd) {
+  return cmd.size() >= 3 && std::islower(static_cast<unsigned char>(cmd[0])) &&
+         std::islower(static_cast<unsigned char>(cmd[1])) && std::islower(static_cast<unsigned char>(cmd[2]));
+}
+
+bool Miot::set_model_(const char *model) {
+  const size_t len = std::strlen(model);
+  size_t dots = 0;
+  bool valid = len > 0 && len <= MAX_MODEL_LENGTH;
+  for (size_t i = 0; valid && i < len; i++) {
+    const char c = model[i];
+    valid = std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '.' || c == '_' || c == '-';
+    if (c == '.') {
+      dots++;
+    }
+  }
+  // a model is <company>.<category>.<version>
+  valid = valid && dots >= 2;
+  if (!valid) {
+    ESP_LOGW(TAG, "Ignoring invalid model '%s'", this->get_printable_string(model).c_str());
+    return false;
+  }
+  this->model_ = model;
+  ESP_LOGI(TAG, "Model: %s", model);
+  return true;
+}
+
+bool Miot::set_mcu_version_(const char *version) {
+  if (version == nullptr) {
+    ESP_LOGW(TAG, "MCU reported no version");
+    return false;
+  }
+  // the spec requires exactly four digits
+  const size_t len = std::strlen(version);
+  bool valid = len == 4;
+  for (size_t i = 0; valid && i < len; i++) {
+    valid = std::isdigit(static_cast<unsigned char>(version[i])) != 0;
+  }
+  if (!valid) {
+    ESP_LOGW(TAG, "Ignoring invalid MCU version '%s'", this->get_printable_string(version).c_str());
+    return false;
+  }
+  this->mcu_version_ = version;
+  ESP_LOGI(TAG, "MCU version: %s", version);
+  return true;
+}
+
 void Miot::update_property(uint32_t siid, uint32_t piid, const char *value) {
   if (this->heartbeat_siid_ != 0 && this->heartbeat_piid_ != 0 && siid == this->heartbeat_siid_ &&
       piid == this->heartbeat_piid_) {
@@ -351,7 +504,7 @@ void Miot::update_property(uint32_t siid, uint32_t piid, const char *value) {
       listener->func(MiotValue(parse_number<float>(value).value_or(0.0f)));
       break;
     case mvtString:
-      listener->func(MiotValue(value));
+      listener->func(MiotValue(unescape_value_(value)));
       break;
   }
 }
@@ -371,35 +524,40 @@ void Miot::process_event_(uint32_t siid, uint32_t eiid) {
 }
 
 // mrfNotify: properties_changed <siid> <piid> <value> ... <siid> <piid> <value>
-// mrfSet: result <siid> <piid> <code> ... <siid> <piid> <code>
+// mrfSet: result <siid> <piid> <code> ... <siid> <piid> <code>       (set_properties)
+// mrfSet: result <siid> <piid> <code> <value> ...                     (get_properties)
 // mrfAction: result <siid> <aiid> <code> <piid> <value> ... <piid> <value>
-// mrfEvent: event_occurred <siid> <eiid> <piid> <value> ... <piid> <value>
-void Miot::update_properties(char **saveptr, MiotResultFormat format) {
+// mrfEvent: event_occured <siid> <eiid> <piid> <value> ... <piid> <value>
+// Returns false if the message is structurally invalid, the MCU then receives an "error" reply.
+bool Miot::update_properties(char **saveptr, MiotResultFormat format) {
   const char *siid = nullptr, *piid = nullptr, *aiid = nullptr, *eiid = nullptr, *code = nullptr, *value = nullptr;
   const char *delim = " ";
+  // get_properties results carry a value, set_properties results do not
+  const bool with_value = format == mrfGet || format == mrfAction || format == mrfEvent || format == mrfNotify;
+  size_t applied = 0;
 
   if (format == mrfAction) {
     if (!(siid = strtok_r(nullptr, delim, saveptr))) {
-      return;
+      return false;
     }
     if (!(aiid = strtok_r(nullptr, delim, saveptr))) {
-      return;
+      return false;
     }
     if (!(code = strtok_r(nullptr, delim, saveptr))) {
-      return;
+      return false;
     }
     if (std::strcmp(code, "0")) {
       ESP_LOGE(TAG, "Result error on action %s:%s: %s", siid, aiid, code);
-      return;
+      return true;
     }
   }
 
   if (format == mrfEvent) {
     if (!(siid = strtok_r(nullptr, delim, saveptr))) {
-      return;
+      return false;
     }
     if (!(eiid = strtok_r(nullptr, delim, saveptr))) {
-      return;
+      return false;
     }
   }
 
@@ -407,19 +565,34 @@ void Miot::update_properties(char **saveptr, MiotResultFormat format) {
     delim = " ";
 
     if (format != mrfAction && format != mrfEvent) {
-      if (!(siid = strtok_r(nullptr, delim, saveptr))) {
+      siid = strtok_r(nullptr, delim, saveptr);
+      if (siid == nullptr) {
+        // end of the message, every entry has been consumed
         break;
       }
     }
     if (!(piid = strtok_r(nullptr, delim, saveptr))) {
-      break;
-    }
-    if (format == mrfSet) {
-      if (!(code = strtok_r(nullptr, delim, saveptr))) {
+      if (format == mrfAction || format == mrfEvent) {
+        // the siid/eiid header was already consumed, so this is the end of the message
         break;
       }
+      return false;
+    }
+    if (format == mrfSet || format == mrfGet) {
+      if (!(code = strtok_r(nullptr, delim, saveptr))) {
+        return false;
+      }
       if (std::strcmp(code, "0")) {
-        ESP_LOGE(TAG, "Result error on property %s:%s: %s", siid, piid, code);
+        // 1 means the request is still in progress, the value follows via properties_changed
+        if (std::strcmp(code, "1")) {
+          ESP_LOGE(TAG, "Result error on property %s:%s: %s", siid, piid, code);
+        } else {
+          ESP_LOGD(TAG, "Result pending on property %s:%s", siid, piid);
+        }
+        continue;
+      }
+      if (!with_value) {
+        applied++;
         continue;
       }
     }
@@ -428,19 +601,27 @@ void Miot::update_properties(char **saveptr, MiotResultFormat format) {
       delim = "\"";
     }
     if (!(value = strtok_r(nullptr, delim, saveptr))) {
-      break;
+      return false;
     }
 
     this->update_property(parse_number<uint32_t>(siid).value_or(0u), parse_number<uint32_t>(piid).value_or(0u), value);
+    applied++;
   }
 
   if (format == mrfEvent) {
     // send event after all properties have been updated
     this->process_event_(parse_number<uint32_t>(siid).value_or(0u), parse_number<uint32_t>(eiid).value_or(0u));
   }
+
+  // the spec requires at least one property to report
+  return format != mrfNotify || applied > 0;
 }
 
-const char *Miot::get_net_reply_() {
+const char *Miot::get_net_reply_() const {
+  // an update in progress replaces the network state, as in the MIoT state diagram
+  if (this->ota_updating_) {
+    return NET_UPDATING;
+  }
   if (remote_is_connected()) {
     return NET_CLOUD;
   }
@@ -449,11 +630,9 @@ const char *Miot::get_net_reply_() {
     return NET_LOCAL;
   }
 #endif
-#ifdef USE_CAPTIVE_PORTAL
-  if (captive_portal::global_captive_portal != nullptr && captive_portal::global_captive_portal->is_active()) {
+  if (is_provisioning_()) {
     return NET_UAP;
   }
-#endif
 #ifdef USE_NETWORK
   if (network::is_disabled()) {
     return NET_UNPROV;
@@ -535,25 +714,36 @@ void Miot::process_message_() {
   this->queue_net_change_command(false);
 
   if (cmd == "get_down") {
-    if (this->command_queue_.empty()) {
+    if (this->awaiting_result_ && this->require_result_) {
+      // one question, one answer: this get_down should have been a result
+      this->mcu_log("Received get_down while a result is pending");
+      this->awaiting_result_ = false;
+      this->expect_action_result_ = false;
+      this->expect_value_result_ = false;
+      this->send_reply_("error");
+    } else if (this->command_queue_.empty()) {
+      // nothing is pending, so a result from here on is unsolicited
+      this->expect_action_result_ = false;
+      this->expect_value_result_ = false;
       this->send_reply_("down none");
     } else {
       const std::string &next_cmd = this->command_queue_.front();
       this->expect_action_result_ = next_cmd.rfind("action ", 0, 7) == 0;
+      this->expect_value_result_ = next_cmd.rfind("get_properties", 0, 14) == 0;
+      this->awaiting_result_ = next_cmd.rfind("MIIO_", 0, 5) != 0 && next_cmd != "none";
       char reply[MAX_LINE_LENGTH + 6];  // "down " + command
       snprintf(reply, sizeof(reply), "down %s", next_cmd.c_str());
       this->send_reply_(reply);
       this->command_queue_.pop();
     }
   } else if (cmd == "properties_changed") {
-    this->update_properties(&saveptr, mrfNotify);
-    this->send_reply_("ok");
+    this->send_reply_(this->update_properties(&saveptr, mrfNotify) ? "ok" : "error");
   } else if (cmd == "event_occured") {
-    this->update_properties(&saveptr, mrfEvent);
-    this->send_reply_("ok");
+    this->send_reply_(this->update_properties(&saveptr, mrfEvent) ? "ok" : "error");
   } else if (cmd == "result") {
-    this->update_properties(&saveptr, this->expect_action_result_ ? mrfAction : mrfSet);
-    this->send_reply_("ok");
+    this->awaiting_result_ = false;
+    const MiotResultFormat format = this->resolve_result_format_(saveptr);
+    this->send_reply_(this->update_properties(&saveptr, format) ? "ok" : "error");
   } else if (cmd == "net") {
     this->send_reply_(this->get_net_reply_());
   } else if (cmd == "time") {
@@ -570,19 +760,28 @@ void Miot::process_message_() {
     this->send_reply_(mac_str);
   } else if (cmd == "model") {
     const char *model = strtok_r(nullptr, " ", &saveptr);
-    if (model != nullptr && *model != 0) {
-      this->model_ = model;
-      ESP_LOGI(TAG, "Model: %s", this->get_printable_string(this->model_).c_str());
+    if (model == nullptr) {
+      // without a parameter the MCU asks for the current model
+      if (this->model_.empty()) {
+        ESP_LOGW(TAG, "MCU queried the model before reporting it");
+        this->send_reply_("error");
+      } else {
+        this->send_reply_(this->model_.c_str());
+      }
+    } else {
+      this->send_reply_(this->set_model_(model) ? "ok" : "error");
     }
-    this->send_reply_("ok");
   } else if (cmd == "mcu_version") {
-    const char *version = strtok_r(nullptr, " ", &saveptr);
-    if (version != nullptr && *version != 0) {
-      this->mcu_version_ = version;
-      ESP_LOGI(TAG, "MCU version: %s", this->get_printable_string(this->mcu_version_).c_str());
-    }
+    this->send_reply_(this->set_mcu_version_(strtok_r(nullptr, " ", &saveptr)) ? "ok" : "error");
+  } else if (cmd == "version") {
+    // report the module firmware version, which is ESPHome now
+    this->send_reply_(ESPHOME_VERSION);
+  } else if (cmd == "reboot") {
+    ESP_LOGI(TAG, "MCU requested a reboot");
     this->send_reply_("ok");
+    App.safe_reboot();
   } else if (cmd == "error") {
+    this->awaiting_result_ = false;
     const char *message = strtok_r(nullptr, "\"", &saveptr);
     const char *code = "";
     if (message != nullptr) {
@@ -601,14 +800,54 @@ void Miot::process_message_() {
     this->send_reply_("ok");
     global_preferences->reset();
     App.safe_reboot();
-  } else if (cmd.size() < 3 || !std::islower(cmd[0]) || !std::islower(cmd[1]) || !std::islower(cmd[2])) {
-    // required for deerma.humidifier.jsq5 and other devices with picky MCUs
-    // that enforce MIoT spec compliance, and print e.g. debug info over UART.
-    this->mcu_log("Invalid command '%s'", this->get_printable_rx_message().c_str());
-    this->send_reply_("error");
-  } else {
+  } else if (cmd == "reset_wifi") {
+    ESP_LOGI(TAG, "Resetting Wi-Fi configuration...");
+#if defined(USE_WIFI)
+    if (wifi::global_wifi_component != nullptr) {
+      wifi::global_wifi_component->clear_sta();
+    }
+#endif
+    this->send_reply_("ok");
+    App.safe_reboot();
+  } else if (cmd == "ble_config") {
+    // we have no BLE remote to configure, but the command has to be answered
+    const char *arg = strtok_r(nullptr, " ", &saveptr);
+    if (arg != nullptr && std::strcmp(arg, "set") == 0) {
+      const char *pid = strtok_r(nullptr, " ", &saveptr);
+      const char *version = strtok_r(nullptr, " ", &saveptr);
+      if (pid == nullptr || version == nullptr) {
+        this->send_reply_("error");
+      } else {
+        ESP_LOGW(TAG, "Ignoring ble_config set %s %s, no BLE remote is configured",
+                 this->get_printable_string(pid).c_str(), this->get_printable_string(version).c_str());
+        this->send_reply_("ok");
+      }
+    } else if (arg != nullptr && std::strcmp(arg, "dump") == 0) {
+      ESP_LOGW(TAG, "Ignoring ble_config dump, no BLE remote is configured");
+      this->send_reply_("ok");
+    } else {
+      this->send_reply_("error");
+    }
+  } else if (cmd == "factory") {
+    // the factory test router cannot be emulated
+    ESP_LOGW(TAG, "Ignoring factory command, factory test mode is not supported");
+    this->send_reply_("ok");
+  } else if (cmd == "set_log_level") {
+    // we run our own logger, so the requested level is dropped, but the command has to be answered
+    const char *level = strtok_r(nullptr, " ", &saveptr);
+    const char *requested = level != nullptr ? level : "-";
+    ESP_LOGD(TAG, "Ignoring set_log_level %s, the module keeps its own log level",
+             this->get_printable_string(requested).c_str());
+    this->send_reply_("ok");
+  } else if (!this->strict_commands_ && is_well_formed_command_(cmd)) {
+    // lenient mode: acknowledge unrecognized but plausible commands, as older docs implied
     this->mcu_log("Unknown command '%s'", this->get_printable_rx_message().c_str());
     this->send_reply_("ok");
+  } else {
+    // the spec requires an "error" reply for commands that are not recognized, which also covers
+    // MCUs that print e.g. debug info over UART
+    this->mcu_log("Unknown command '%s'", this->get_printable_rx_message().c_str());
+    this->send_reply_("error");
   }
 }
 

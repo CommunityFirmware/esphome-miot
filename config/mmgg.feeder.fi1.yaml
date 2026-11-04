@@ -4,7 +4,7 @@
 # https://github.com/cristianchelu/dispenser-schedule-card
 
 external_components:
-  source: github://dhewg/esphome-miot@main
+  source: github://CommunityFirmware/esphome-miot@main
 
 substitutions:
   # Timezone for automatic daylight savings time (DST) adjustment
@@ -47,7 +47,7 @@ esphome:
   friendly_name: Pet Feeder
   comment: Xiaomi Smart Pet Food Feeder (mmgg.feeder.fi1)
   project:
-    name: "dhewg.esphome-miot"
+    name: "CommunityFirmware.esphome-miot"
     version: "mmgg.feeder.fi1"
 
 time:
@@ -169,6 +169,9 @@ uart:
 
 miot:
   id: miot_main
+  # Serial protocol behaviour; set to false only if the MCU does not follow the spec strictly
+  miot_strict_commands: true
+  miot_require_result: true
 
 switch:
   - platform: "miot"

@@ -1,14 +1,14 @@
 # https://home.miot-spec.com/spec/deerma.humidifier.jsq5
 
 external_components:
-  source: github://dhewg/esphome-miot@main
+  source: github://CommunityFirmware/esphome-miot@main
 
 esphome:
   name: "mi-smart-humidifier"
   friendly_name: "Mi Smart Antibacterial Humidifier"
   comment: "Mi Smart Antibacterial Humidifier (deerma.humidifier.jsq5)"
   project:
-    name: "dhewg.esphome-miot"
+    name: "CommunityFirmware.esphome-miot"
     version: "deerma.humidifier.jsq5"
 
 esp8266:
@@ -50,6 +50,9 @@ uart:
 
 miot:
   id: miot_main
+  # Serial protocol behaviour; set to false only if the MCU does not follow the spec strictly
+  miot_strict_commands: true
+  miot_require_result: true
 
 text_sensor:
   - platform: "miot"
