@@ -122,8 +122,13 @@ class Miot : public Component,
   /// The value the MCU sees for the current state, "updating" may be customised per device.
   const char *get_net_change_payload_() const;
   std::string get_time_reply_(bool posix) const;
+  /// The reply to ble_config dump, i.e. the product id and version the MCU set.
+  std::string get_ble_config_reply_() const;
   void send_reply_(const char *reply);
+  /// The spec requires a four digit version string, used for the MCU and the BLE version.
+  static bool is_version_string_(const char *version);
   bool set_mcu_version_(const char *version);
+  bool set_ble_config_(const char *pid, const char *version);
   /// A command name the MCU could plausibly have meant, used by the lenient mode.
   static bool is_well_formed_command_(const StringRef &cmd);
   /// Pick the layout of a "result" reply from the number of arguments it carries.
@@ -158,6 +163,9 @@ class Miot : public Component,
   const char *last_net_reply_{nullptr};
   std::string model_;
   std::string mcu_version_;
+  /// BLE provisioning values from the MCU. This module has no BLE radio, they are only reported back.
+  uint16_t ble_pid_{0};
+  std::string ble_version_;
   std::vector<std::string> mcu_log_;
   StaticRingBuffer<std::string, MAX_QUEUED_COMMANDS> command_queue_;
   /// A downlink command that requires a result is in flight.

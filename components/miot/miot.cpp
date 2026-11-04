@@ -460,24 +460,73 @@ bool Miot::set_model_(const char *model) {
   return true;
 }
 
+bool Miot::is_version_string_(const char *version) {
+  if (version == nullptr) {
+    return false;
+  }
+  const size_t len = std::strlen(version);
+  if (len != 4) {
+    return false;
+  }
+  for (size_t i = 0; i < len; i++) {
+    if (std::isdigit(static_cast<unsigned char>(version[i])) == 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool Miot::set_mcu_version_(const char *version) {
   if (version == nullptr) {
     ESP_LOGW(TAG, "MCU reported no version");
     return false;
   }
   // the spec requires exactly four digits
-  const size_t len = std::strlen(version);
-  bool valid = len == 4;
-  for (size_t i = 0; valid && i < len; i++) {
-    valid = std::isdigit(static_cast<unsigned char>(version[i])) != 0;
-  }
-  if (!valid) {
+  if (!is_version_string_(version)) {
     ESP_LOGW(TAG, "Ignoring invalid MCU version '%s'", this->get_printable_string(version).c_str());
     return false;
   }
   this->mcu_version_ = version;
   ESP_LOGI(TAG, "MCU version: %s", version);
   return true;
+}
+
+bool Miot::set_ble_config_(const char *pid, const char *version) {
+  if (pid == nullptr || version == nullptr) {
+    ESP_LOGW(TAG, "Ignoring incomplete ble_config, expected set <pid> <version>");
+    return false;
+  }
+  // the spec wants a decimal product id below 65536, and the MCU version as the BLE version
+  const auto parsed_pid = parse_number<uint32_t>(pid);
+  if (!parsed_pid.has_value() || *parsed_pid == 0 || *parsed_pid > 0xFFFF) {
+    ESP_LOGW(TAG, "Ignoring invalid BLE product id '%s'", this->get_printable_string(pid).c_str());
+    return false;
+  }
+  if (!is_version_string_(version)) {
+    ESP_LOGW(TAG, "Ignoring invalid BLE version '%s'", this->get_printable_string(version).c_str());
+    return false;
+  }
+  if (!this->mcu_version_.empty() && this->mcu_version_ != version) {
+    // the spec asks for both to be the same, but a mismatch is the MCU's problem, not a protocol error
+    ESP_LOGW(TAG, "BLE version %s differs from the MCU version %s", version, this->mcu_version_.c_str());
+  }
+  this->ble_pid_ = static_cast<uint16_t>(*parsed_pid);
+  this->ble_version_ = version;
+  ESP_LOGI(TAG, "BLE config: product id %" PRIu16 ", version %s", this->ble_pid_, version);
+  return true;
+}
+
+std::string Miot::get_ble_config_reply_() const {
+  if (this->ble_pid_ == 0) {
+    // a real dual mode module has factory values here, this one has none until the MCU sets them
+    ESP_LOGW(TAG, "MCU queried the BLE config before setting it");
+    return "ok";
+  }
+  // the spec example is ["product id":156,"version":1.3.0_0000]: quoted keys, bare values
+  char buffer[64];
+  snprintf(buffer, sizeof(buffer), "[\"product id\":%" PRIu16 ",\"version\":%s]", this->ble_pid_,
+           this->ble_version_.c_str());
+  return buffer;
 }
 
 void Miot::update_property(uint32_t siid, uint32_t piid, const char *value) {
@@ -810,21 +859,14 @@ void Miot::process_message_() {
     this->send_reply_("ok");
     App.safe_reboot();
   } else if (cmd == "ble_config") {
-    // we have no BLE remote to configure, but the command has to be answered
+    // a dual mode MCU announces the product id its BLE pairing advertises, so keep it for dump
     const char *arg = strtok_r(nullptr, " ", &saveptr);
     if (arg != nullptr && std::strcmp(arg, "set") == 0) {
       const char *pid = strtok_r(nullptr, " ", &saveptr);
       const char *version = strtok_r(nullptr, " ", &saveptr);
-      if (pid == nullptr || version == nullptr) {
-        this->send_reply_("error");
-      } else {
-        ESP_LOGW(TAG, "Ignoring ble_config set %s %s, no BLE remote is configured",
-                 this->get_printable_string(pid).c_str(), this->get_printable_string(version).c_str());
-        this->send_reply_("ok");
-      }
+      this->send_reply_(this->set_ble_config_(pid, version) ? "ok" : "error");
     } else if (arg != nullptr && std::strcmp(arg, "dump") == 0) {
-      ESP_LOGW(TAG, "Ignoring ble_config dump, no BLE remote is configured");
-      this->send_reply_("ok");
+      this->send_reply_(this->get_ble_config_reply_().c_str());
     } else {
       this->send_reply_("error");
     }
