@@ -4,8 +4,7 @@
 #include "esphome/components/switch/switch.h"
 #include "../miot.h"
 
-namespace esphome {
-namespace miot {
+namespace esphome::miot {
 
 class MiotSwitch : public switch_::Switch, public Component {
  public:
@@ -27,7 +26,7 @@ class MiotSwitch : public switch_::Switch, public Component {
  protected:
   void write_state(bool state) override;
 
-  Miot *parent_;
+  Miot *parent_{nullptr};
   uint32_t siid_{0};
   uint32_t piid_{0};
   bool poll_{true};
@@ -35,5 +34,4 @@ class MiotSwitch : public switch_::Switch, public Component {
   std::string false_value_;
 };
 
-}  // namespace miot
-}  // namespace esphome
+}  // namespace esphome::miot

@@ -6,8 +6,7 @@
 #include "esphome/components/select/select.h"
 #include "../miot.h"
 
-namespace esphome {
-namespace miot {
+namespace esphome::miot {
 
 class MiotSelect : public select::Select, public Component {
  public:
@@ -20,17 +19,16 @@ class MiotSelect : public select::Select, public Component {
     this->piid_ = piid;
     this->poll_ = poll;
   }
-  void set_select_mappings(const std::vector<uint32_t> &mappings) { this->mappings_ = std::move(mappings); }
+  void set_select_mappings(const std::vector<uint32_t> &mappings) { this->mappings_ = mappings; }
 
  protected:
   void control(const std::string &value) override;
 
-  Miot *parent_;
+  Miot *parent_{nullptr};
   uint32_t siid_{0};
   uint32_t piid_{0};
   bool poll_{true};
   std::vector<uint32_t> mappings_;
 };
 
-}  // namespace miot
-}  // namespace esphome
+}  // namespace esphome::miot

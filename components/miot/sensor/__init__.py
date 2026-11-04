@@ -1,8 +1,16 @@
+import esphome.codegen as cg
 from esphome.components import sensor
 import esphome.config_validation as cv
-import esphome.codegen as cg
 from esphome.const import CONF_ID
-from .. import miot_ns, CONF_MIOT_ID, CONF_MIOT_SIID, CONF_MIOT_PIID, CONF_MIOT_POLL, Miot
+
+from .. import (
+    CONF_MIOT_ID,
+    CONF_MIOT_PIID,
+    CONF_MIOT_POLL,
+    CONF_MIOT_SIID,
+    Miot,
+    miot_ns,
+)
 
 DEPENDENCIES = ["miot"]
 
@@ -21,10 +29,18 @@ CONFIG_SCHEMA = (
     .extend(cv.COMPONENT_SCHEMA)
 )
 
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await sensor.register_sensor(var, config)
 
     parent = await cg.get_variable(config[CONF_MIOT_ID])
-    cg.add(var.set_miot_config(parent, config[CONF_MIOT_SIID], config[CONF_MIOT_PIID], config[CONF_MIOT_POLL]))
+    cg.add(
+        var.set_miot_config(
+            parent,
+            config[CONF_MIOT_SIID],
+            config[CONF_MIOT_PIID],
+            config[CONF_MIOT_POLL],
+        )
+    )

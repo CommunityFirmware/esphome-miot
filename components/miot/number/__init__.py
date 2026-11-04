@@ -1,17 +1,27 @@
+import esphome.codegen as cg
 from esphome.components import number
 import esphome.config_validation as cv
-import esphome.codegen as cg
 from esphome.const import CONF_ID, CONF_MAX_VALUE, CONF_MIN_VALUE, CONF_STEP
-from .. import miot_ns, CONF_MIOT_ID, CONF_MIOT_SIID, CONF_MIOT_PIID, CONF_MIOT_POLL, Miot
+
+from .. import (
+    CONF_MIOT_ID,
+    CONF_MIOT_PIID,
+    CONF_MIOT_POLL,
+    CONF_MIOT_SIID,
+    Miot,
+    miot_ns,
+)
 
 DEPENDENCIES = ["miot"]
 
 MiotNumber = miot_ns.class_("MiotNumber", number.Number, cg.Component)
 
+
 def validate_min_max(config):
     if config[CONF_MAX_VALUE] <= config[CONF_MIN_VALUE]:
         raise cv.Invalid("max_value must be greater than min_value")
     return config
+
 
 CONFIG_SCHEMA = cv.All(
     number.number_schema(MiotNumber)
@@ -30,6 +40,7 @@ CONFIG_SCHEMA = cv.All(
     validate_min_max,
 )
 
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -42,4 +53,11 @@ async def to_code(config):
     )
 
     parent = await cg.get_variable(config[CONF_MIOT_ID])
-    cg.add(var.set_miot_config(parent, config[CONF_MIOT_SIID], config[CONF_MIOT_PIID], config[CONF_MIOT_POLL]))
+    cg.add(
+        var.set_miot_config(
+            parent,
+            config[CONF_MIOT_SIID],
+            config[CONF_MIOT_PIID],
+            config[CONF_MIOT_POLL],
+        )
+    )

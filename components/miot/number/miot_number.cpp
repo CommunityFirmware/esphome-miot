@@ -1,16 +1,13 @@
 #include "esphome/core/log.h"
 #include "miot_number.h"
 
-namespace esphome {
-namespace miot {
+namespace esphome::miot {
 
-static const char *const TAG = "miot.number";
+ESPHOME_LOG_TAG(TAG, "miot.number");
 
 void MiotNumber::setup() {
-  this->parent_->register_listener(this->siid_, this->piid_, this->poll_, mvtFloat, [this](const MiotValue &value) {
-    ESP_LOGV(TAG, "MCU reported number %" PRIu32 ":%" PRIu32 " is: %f", this->siid_, this->piid_, value.as_float);
-    this->publish_state(value.as_float);
-  });
+  this->parent_->register_listener(this->siid_, this->piid_, this->poll_, mvtFloat,
+                                   [this](const MiotValue &value) { this->publish_state(value.as_float); });
 }
 
 void MiotNumber::control(float value) {
@@ -23,9 +20,8 @@ void MiotNumber::control(float value) {
 
 void MiotNumber::dump_config() {
   LOG_NUMBER("", "MIoT Number", this);
-  ESP_LOGCONFIG(TAG, "  SIID: %" PRIu32 "", this->siid_);
-  ESP_LOGCONFIG(TAG, "  PIID: %" PRIu32 "", this->piid_);
+  ESP_LOGCONFIG(TAG, "  SIID: %" PRIu32 "\n  PIID: %" PRIu32 "\n  Poll: %s", this->siid_, this->piid_,
+                YESNO(this->poll_));
 }
 
-}  // namespace miot
-}  // namespace esphome
+}  // namespace esphome::miot

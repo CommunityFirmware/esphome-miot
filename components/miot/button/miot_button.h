@@ -1,11 +1,12 @@
 #pragma once
 
+#include <string>
+
 #include "esphome/core/component.h"
 #include "esphome/components/button/button.h"
 #include "../miot.h"
 
-namespace esphome {
-namespace miot {
+namespace esphome::miot {
 
 class MiotButton : public button::Button, public Component {
  public:
@@ -17,18 +18,15 @@ class MiotButton : public button::Button, public Component {
     this->aiid_ = aiid;
   }
 
-  void set_action_args(const std::string &actions_args) {
-    this->action_args_ = actions_args;
-  }
+  void set_action_args(const std::string &action_args) { this->action_args_ = action_args; }
 
  protected:
-  virtual void press_action() override;
+  void press_action() override;
 
-  Miot *parent_;
+  Miot *parent_{nullptr};
   uint32_t siid_{0};
   uint32_t aiid_{0};
   std::string action_args_;
 };
 
-}  // namespace miot
-}  // namespace esphome
+}  // namespace esphome::miot

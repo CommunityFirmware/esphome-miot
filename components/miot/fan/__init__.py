@@ -1,6 +1,6 @@
+import esphome.codegen as cg
 from esphome.components import fan
 import esphome.config_validation as cv
-import esphome.codegen as cg
 from esphome.const import (
     CONF_DIRECTION,
     CONF_MAX_VALUE,
@@ -12,64 +12,56 @@ from esphome.const import (
     CONF_STATE,
     CONF_STEP,
 )
+
 from .. import (
-    miot_ns,
     CONF_MIOT_ID,
-    CONF_MIOT_SIID,
     CONF_MIOT_PIID,
+    CONF_MIOT_SIID,
     Miot,
+    ensure_option_map,
+    miot_ns,
 )
 
 DEPENDENCIES = ["miot"]
 
 MiotFan = miot_ns.class_("MiotFan", cg.Component, fan.Fan)
 
-def ensure_option_map(value):
-    cv.check_not_templatable(value)
-    option = cv.All(cv.int_range(0, 2**32 - 1))
-    mapping = cv.All(cv.string_strict)
-    options_map_schema = cv.Schema({option: mapping})
-    value = options_map_schema(value)
+PROPERTY_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_MIOT_SIID): cv.uint32_t,
+        cv.Required(CONF_MIOT_PIID): cv.uint32_t,
+    }
+)
 
-    all_values = list(value.keys())
-    unique_values = set(value.keys())
-    if len(all_values) != len(unique_values):
-        raise cv.Invalid("Mapping values must be unique.")
 
-    return value
+def validate_speed(config):
+    if config[CONF_MAX_VALUE] <= config[CONF_MIN_VALUE]:
+        raise cv.Invalid("max_value must be greater than min_value")
+    return config
 
-CONFIG_SCHEMA = cv.All(
+
+SPEED_SCHEMA = cv.All(
+    cv.Schema(
+        {
+            cv.Required(CONF_MIOT_SIID): cv.uint32_t,
+            cv.Required(CONF_MIOT_PIID): cv.uint32_t,
+            cv.Required(CONF_MIN_VALUE): cv.uint32_t,
+            cv.Required(CONF_MAX_VALUE): cv.uint32_t,
+            cv.Optional(CONF_STEP, default=1): cv.int_range(min=1),
+        }
+    ),
+    validate_speed,
+)
+
+CONFIG_SCHEMA = (
     fan.fan_schema(MiotFan)
     .extend(
         {
             cv.GenerateID(CONF_MIOT_ID): cv.use_id(Miot),
-            cv.Required(CONF_STATE): cv.Schema(
-                {
-                    cv.Required(CONF_MIOT_SIID): cv.uint32_t,
-                    cv.Required(CONF_MIOT_PIID): cv.uint32_t,
-                }
-            ),
-            cv.Required(CONF_SPEED): cv.Schema(
-                {
-                    cv.Required(CONF_MIOT_SIID): cv.uint32_t,
-                    cv.Required(CONF_MIOT_PIID): cv.uint32_t,
-                    cv.Required(CONF_MIN_VALUE): cv.uint32_t,
-                    cv.Required(CONF_MAX_VALUE): cv.uint32_t,
-                    cv.Optional(CONF_STEP, default=1): cv.uint32_t,
-                }
-            ),
-            cv.Optional(CONF_OSCILLATING): cv.Schema(
-                {
-                    cv.Required(CONF_MIOT_SIID): cv.uint32_t,
-                    cv.Required(CONF_MIOT_PIID): cv.uint32_t,
-                }
-            ),
-            cv.Optional(CONF_DIRECTION): cv.Schema(
-                {
-                    cv.Required(CONF_MIOT_SIID): cv.uint32_t,
-                    cv.Required(CONF_MIOT_PIID): cv.uint32_t,
-                }
-            ),
+            cv.Required(CONF_STATE): PROPERTY_SCHEMA,
+            cv.Required(CONF_SPEED): SPEED_SCHEMA,
+            cv.Optional(CONF_OSCILLATING): PROPERTY_SCHEMA,
+            cv.Optional(CONF_DIRECTION): PROPERTY_SCHEMA,
             cv.Optional(CONF_PRESET_MODES): cv.Schema(
                 {
                     cv.Required(CONF_MIOT_SIID): cv.uint32_t,
@@ -78,8 +70,10 @@ CONFIG_SCHEMA = cv.All(
                 }
             ),
         }
-    ).extend(cv.COMPONENT_SCHEMA),
+    )
+    .extend(cv.COMPONENT_SCHEMA)
 )
+
 
 async def to_code(config):
     parent = await cg.get_variable(config[CONF_MIOT_ID])
@@ -87,16 +81,38 @@ async def to_code(config):
     var = await fan.new_fan(config, parent)
     await cg.register_component(var, config)
 
-    state = config.get(CONF_STATE)
+    state = config[CONF_STATE]
     cg.add(var.set_state_config(state[CONF_MIOT_SIID], state[CONF_MIOT_PIID]))
-    speed = config.get(CONF_SPEED)
-    cg.add(var.set_speed_config(speed[CONF_MIOT_SIID], speed[CONF_MIOT_PIID], speed[CONF_MIN_VALUE], speed[CONF_MAX_VALUE], speed[CONF_STEP]))
+
+    speed = config[CONF_SPEED]
+    cg.add(
+        var.set_speed_config(
+            speed[CONF_MIOT_SIID],
+            speed[CONF_MIOT_PIID],
+            speed[CONF_MIN_VALUE],
+            speed[CONF_MAX_VALUE],
+            speed[CONF_STEP],
+        )
+    )
+
     if oscillating := config.get(CONF_OSCILLATING):
-        cg.add(var.set_oscillating_config(oscillating[CONF_MIOT_SIID], oscillating[CONF_MIOT_PIID]))
+        cg.add(
+            var.set_oscillating_config(
+                oscillating[CONF_MIOT_SIID], oscillating[CONF_MIOT_PIID]
+            )
+        )
     if direction := config.get(CONF_DIRECTION):
-        cg.add(var.set_direction_config(direction[CONF_MIOT_SIID], direction[CONF_MIOT_PIID]))
+        cg.add(
+            var.set_direction_config(
+                direction[CONF_MIOT_SIID], direction[CONF_MIOT_PIID]
+            )
+        )
     if preset_modes := config.get(CONF_PRESET_MODES):
-        cg.add(var.set_preset_modes_config(preset_modes[CONF_MIOT_SIID], preset_modes[CONF_MIOT_PIID]))
+        cg.add(
+            var.set_preset_modes_config(
+                preset_modes[CONF_MIOT_SIID], preset_modes[CONF_MIOT_PIID]
+            )
+        )
         options_map = preset_modes[CONF_OPTIONS]
-        for k in options_map:
-            cg.add(var.set_preset_mode_name(k, options_map[k]))
+        for option_value, option_name in options_map.items():
+            cg.add(var.set_preset_mode_name(option_value, option_name))

@@ -4,8 +4,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "../miot.h"
 
-namespace esphome {
-namespace miot {
+namespace esphome::miot {
 
 class MiotSensor : public sensor::Sensor, public Component {
  public:
@@ -20,11 +19,10 @@ class MiotSensor : public sensor::Sensor, public Component {
   }
 
  protected:
-  Miot *parent_;
+  Miot *parent_{nullptr};
   uint32_t siid_{0};
   uint32_t piid_{0};
   bool poll_{true};
 };
 
-}  // namespace miot
-}  // namespace esphome
+}  // namespace esphome::miot

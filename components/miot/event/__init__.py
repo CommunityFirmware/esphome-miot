@@ -1,8 +1,9 @@
-import esphome.config_validation as cv
-from esphome.components import event
 import esphome.codegen as cg
+from esphome.components import event
+import esphome.config_validation as cv
 from esphome.const import CONF_EVENT_TYPE
-from .. import miot_ns, CONF_MIOT_ID, CONF_MIOT_SIID, CONF_MIOT_EIID, Miot
+
+from .. import CONF_MIOT_EIID, CONF_MIOT_ID, CONF_MIOT_SIID, Miot, miot_ns
 
 DEPENDENCIES = ["miot"]
 
@@ -17,8 +18,16 @@ CONFIG_SCHEMA = event.event_schema(MiotEvent).extend(
     }
 )
 
+
 async def to_code(config):
     var = await event.new_event(config, event_types=[config[CONF_EVENT_TYPE]])
     await cg.register_component(var, config)
     parent = await cg.get_variable(config[CONF_MIOT_ID])
-    cg.add(var.set_miot_config(parent, config[CONF_MIOT_SIID], config[CONF_MIOT_EIID], cg.RawExpression(f'"{config[CONF_EVENT_TYPE]}"')))
+    cg.add(
+        var.set_miot_config(
+            parent,
+            config[CONF_MIOT_SIID],
+            config[CONF_MIOT_EIID],
+            config[CONF_EVENT_TYPE],
+        )
+    )

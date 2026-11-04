@@ -1,7 +1,8 @@
+import esphome.codegen as cg
 from esphome.components import button
 import esphome.config_validation as cv
-import esphome.codegen as cg
-from .. import miot_ns, CONF_MIOT_ID, CONF_MIOT_SIID, Miot
+
+from .. import CONF_MIOT_ID, CONF_MIOT_SIID, Miot, miot_ns
 
 DEPENDENCIES = ["miot"]
 
@@ -22,6 +23,7 @@ CONFIG_SCHEMA = (
     )
     .extend(cv.COMPONENT_SCHEMA)
 )
+
 
 async def to_code(config):
     var = await button.new_button(config)
