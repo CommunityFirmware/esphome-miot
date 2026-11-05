@@ -183,13 +183,15 @@ void Miot::dump_config() {
                 "MIoT:\n"
                 "  Model: %s\n"
                 "  MCU version: %s\n"
+                "  MCU auto OTA: %s\n"
                 "  Heartbeat: %" PRIu32 ":%" PRIu32 "\n"
                 "  OTA net indicator: %s\n"
                 "  Strict commands: %s\n"
                 "  Require result: %s\n"
                 "  Time: %s",
-                model.c_str(), mcu_version.c_str(), this->heartbeat_siid_, this->heartbeat_piid_,
-                this->ota_net_indicator_.c_str(), YESNO(this->strict_commands_), YESNO(this->require_result_),
+                model.c_str(), mcu_version.c_str(), YESNO(this->mcu_auto_ota_), this->heartbeat_siid_,
+                this->heartbeat_piid_, this->ota_net_indicator_.c_str(), YESNO(this->strict_commands_),
+                YESNO(this->require_result_),
 #ifdef USE_TIME
                 "available"
 #else
@@ -347,7 +349,8 @@ void Miot::set_property(uint32_t siid, uint32_t piid, const MiotValue &value) {
       this->queue_command("set_properties %" PRIu32 " %" PRIu32 " %f", siid, piid, value.as_float);
       break;
     case mvtString:
-      this->queue_command("set_properties %" PRIu32 " %" PRIu32 " %s", siid, piid, value.as_string.c_str());
+      this->queue_command("set_properties %" PRIu32 " %" PRIu32 " %s", siid, piid,
+                          this->escape_value_(value.as_string).c_str());
       break;
   }
 }
@@ -431,6 +434,15 @@ std::string Miot::unescape_value_(const char *value) {
     result.replace(pos, 6, " ");
   }
   return result;
+}
+
+std::string Miot::escape_value_(const std::string &value) {
+  // the wire format is space separated, so a space inside a value has to be escaped
+  std::string escaped = value;
+  for (size_t pos = escaped.find(' '); pos != std::string::npos; pos = escaped.find(' ', pos + 6)) {
+    escaped.replace(pos, 1, "\\u0020");
+  }
+  return escaped;
 }
 
 bool Miot::is_well_formed_command_(const StringRef &cmd) {
@@ -789,6 +801,21 @@ void Miot::process_message_() {
     this->send_reply_(this->update_properties(&saveptr, mrfNotify) ? "ok" : "error");
   } else if (cmd == "event_occured") {
     this->send_reply_(this->update_properties(&saveptr, mrfEvent) ? "ok" : "error");
+  } else if (cmd == "props") {
+    // the MCU reports a single property straight to the cloud, e.g. props ota_state "busy"
+    const char *name = strtok_r(nullptr, " ", &saveptr);
+    const char *value = strtok_r(nullptr, " ", &saveptr);
+    if (name == nullptr || value == nullptr || std::strcmp(name, "ota_state") != 0) {
+      ESP_LOGW(TAG, "Ignoring unsupported props command '%s'", this->get_printable_rx_message().c_str());
+      this->send_reply_("error");
+    } else if (std::strcmp(value, "busy") == 0 || std::strcmp(value, "\"busy\"") == 0 ||
+               std::strcmp(value, "idle") == 0 || std::strcmp(value, "\"idle\"") == 0) {
+      ESP_LOGI(TAG, "MCU ota_state: %s", this->get_printable_string(value).c_str());
+      this->send_reply_("ok");
+    } else {
+      ESP_LOGW(TAG, "Ignoring invalid ota_state '%s'", this->get_printable_string(value).c_str());
+      this->send_reply_("error");
+    }
   } else if (cmd == "result") {
     this->awaiting_result_ = false;
     const MiotResultFormat format = this->resolve_result_format_(saveptr);
@@ -874,6 +901,21 @@ void Miot::process_message_() {
     // the factory test router cannot be emulated
     ESP_LOGW(TAG, "Ignoring factory command, factory test mode is not supported");
     this->send_reply_("ok");
+  } else if (cmd == "set_mcu_auto_ota") {
+    // the MCU declares whether it may be updated silently. We never push MCU firmware, but a
+    // device has to report this at boot or it cannot pass the acceptance test.
+    const char *arg = strtok_r(nullptr, " ", &saveptr);
+    const bool on = arg != nullptr && std::strcmp(arg, "on") == 0;
+    const bool off = arg != nullptr && std::strcmp(arg, "off") == 0;
+    if (!on && !off) {
+      ESP_LOGW(TAG, "Ignoring invalid set_mcu_auto_ota '%s'", this->get_printable_rx_message().c_str());
+      this->send_reply_("error");
+    } else {
+      this->mcu_auto_ota_ = on;
+      const char *support = on ? "supports" : "does not support";
+      ESP_LOGI(TAG, "MCU %s automatic OTA updates", support);
+      this->send_reply_("ok");
+    }
   } else if (cmd == "set_log_level") {
     // we run our own logger, so the requested level is dropped, but the command has to be answered
     const char *level = strtok_r(nullptr, " ", &saveptr);

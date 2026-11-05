@@ -30,7 +30,8 @@ struct MiotValue {
   explicit MiotValue(float value) : type(mvtFloat) { this->as_float = value; }
   // mvtString values are put on the wire verbatim. Booleans and enums are sent unquoted
   // ("true", "false", numbers); a value for a MIoT *string* property must bring its own
-  // double quotes, as the protocol is JSON based and requires them for strings.
+  // double quotes, as the protocol is JSON based and requires them for strings. Spaces
+  // inside the value are escaped as \u0020 on its way out.
   explicit MiotValue(const char *value) : type(mvtString), as_string(value != nullptr ? value : "") {}
   explicit MiotValue(const std::string &value) : type(mvtString), as_string(value) {}
 
@@ -143,6 +144,8 @@ class Miot : public Component,
 
   /// Replace the escapes the MCU uses for characters inside string values.
   static std::string unescape_value_(const char *value);
+  /// Escape a value on its way out, so a space cannot be mistaken for a separator.
+  static std::string escape_value_(const std::string &value);
 
   MiotListener *find_listener_(uint32_t siid, uint32_t piid);
 #ifdef USE_EVENT
@@ -178,6 +181,8 @@ class Miot : public Component,
   std::string ota_net_indicator_;
   /// A firmware update is running, so the module reports the "updating" state.
   bool ota_updating_{false};
+  /// The MCU declared that it may receive silent automatic updates.
+  bool mcu_auto_ota_{false};
   bool strict_commands_{true};
   bool require_result_{true};
   std::vector<MiotListener> listeners_;
